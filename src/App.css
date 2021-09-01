@@ -1,0 +1,55 @@
+.left {
+  float: left;
+  width: 300px;
+  height: 500px;
+  border: 1px solid;
+  word-break: break-all;
+}
+
+.right {
+  float: right;
+  width: 300px;
+  height: 500px;
+}
+
+.cursor {
+  background: rgba(0, 0, 0, 1);
+  padding: 0 1px;
+  animation: cursor 800ms infinite;
+  margin-left: -2px;
+}
+
+@keyframes cursor {
+  from {
+    background: rgba(0, 0, 0, 1);
+  }
+
+  to {
+    background: rgba(0, 0, 0, 0);
+  }
+}
+
+.md-paragraph:empty::after {
+  content: '\200B';
+}
+
+.md-heading:empty::after {
+  content: '\200B';
+}
+
+.md-blockquote:empty::after {
+  content: '\200B';
+}
+
+#editor {
+  background-color: #fff;
+  width: 800px;
+  min-height: calc(100vh - 10px);
+  word-break: break-all;
+  padding: 76px;
+  margin: auto;
+  margin-top: 10px;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  box-shadow: 0 0 30px 5px rgba(227, 234, 241, 0.8);
+}
