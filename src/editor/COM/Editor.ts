@@ -1,157 +1,223 @@
-// @ts-nocheck
-import Selection from './Selection';
-import Range from './Range';
-import Point from './Point';
-
+import TextFeature from './TextFeature';
+import * as utils from '../utils';
 class Editor {
-  constructor(editor) {
-    if (!editor) throw 'undefined edtior';
-    editor.addEventListener('beforeinput', this.beforeInput.bind(this));
+  private editorEl: HTMLDivElement;
+  private textFeature: TextFeature;
+
+  private model: TokenType[];
+  constructor(editorEL: HTMLDivElement) {
+    this.editorEl = editorEL;
+    this.editorEl.addEventListener('beforeinput', this.beforeInput.bind(this));
+    this.editorEl.setAttribute('contentEditable', 'true');
+
+    this.textFeature = new TextFeature();
+    this.model = [utils.createParagraphToken('', this.editorEl)];
+    this.render();
   }
-  beforeInput(event) {
+  beforeInput(event: InputEvent) {
     event.preventDefault();
-
-    if (event.inputType === 'insertText') {
-      this.insertText(event.data);
+    console.log(event);
+    switch (event.inputType) {
+      case 'insertText':
+        this.insertText(event.data);
+        break;
+      case 'deleteContentBackward':
+        this.deleteContentBackward();
+        break;
+      case 'insertParagraph':
+        this.insertParagraph();
+        break;
     }
-    if (event.inputType === 'deleteContentBackward') {
-      this.deleteContentBackward();
-    }
-    if (event.inputType === 'insertParagraph') {
-      this.insertParagraph();
-    }
-    console.log(event.inputType, event.data);
   }
 
-  insertText(text) {
-    const { startPoint, endPoint, collapsed } = selection.range;
-    if (!collapsed) return; // remove
-    const token = startPoint.node._token;
-    token.text = token.text.splice(startPoint.offset, text);
+  insertText(text: string | null) {
+    console.log('insertText', text);
+    if (!text) text = '';
+    const location = this.textFeature.getCurLocation();
+    if (!this.textFeature.isCollapsed || !location) return;
+    const { token: curToken, offset } = location;
 
-    // transform blocktoken
-    // blocktoken.transform() or transformToken(blocktoken)
+    curToken.text = curToken.text.splice(offset, text);
 
     // find block
-    const curBlock = token.parent;
+    const curBlock = curToken.parent;
     const curBlockToken = curBlock._token;
     let curBlockParentTokens;
-    if (curBlockToken.parent === editor) {
-      curBlockParentTokens = model;
+    if (curBlockToken.parent === this.editorEl) {
+      curBlockParentTokens = this.model;
     } else {
       curBlockParentTokens = curBlockToken.parent._token.tokens;
     }
 
-    if (token.text.indexOf('# ') > -1) {
-      const i = token.text.indexOf('# ') + 2;
-      token.text = token.text.slice(i);
-      const offset = startPoint.offset - i + 1;
+    if (curToken.text.indexOf('# ') > -1) {
+      const i = curToken.text.indexOf('# ') + 2;
+      curToken.text = curToken.text.slice(i);
+      const newOffset = offset - i + 1;
       curBlockToken.type = 'heading';
-      render();
-      selection.selection.setPosition(token.node, offset);
+      this.render();
+      this.textFeature.selection?.setPosition(curToken.node, newOffset);
       return;
     }
 
-    if (token.text.indexOf('> ') > -1) {
-      const i = token.text.indexOf('> ') + 2;
-      token.text = token.text.slice(i);
-      const offset = startPoint.offset - i + 1;
+    if (curToken.text.indexOf('> ') > -1) {
+      const i = curToken.text.indexOf('> ') + 2;
+      curToken.text = curToken.text.slice(i);
+      const newOffset = offset - i + 1;
       curBlockToken.type = 'blockquote';
-      render();
-      selection.selection.setPosition(token.node, offset);
+      this.render();
+      this.textFeature.selection?.setPosition(curToken.node, newOffset);
       return;
     }
 
     // marked.lexer(token.text)
-
-    render();
-    selection.selection.setPosition(token.node, startPoint.offset + 1);
+    this.render();
+    // render后，curToken.node.
+    this.textFeature.selection?.setPosition(
+      curToken.node,
+      offset + text.length
+    );
   }
   deleteContentBackward() {
-    const { startPoint, endPoint, collapsed } = selection.range;
-    if (!collapsed) return; // remove
-    const token = startPoint.node._token;
+    if (this.textFeature.isCollapsed) {
+      // delete in Caret
+      const location = this.textFeature.getCurLocation();
+      if (!this.textFeature.isCollapsed || !location) return;
+      const { token: curToken, offset } = location;
 
-    // removeBlock
-    if (startPoint.offset === 0) {
-      // find parent block , Need to be function
-      const curBlock = token.parent;
-      const curBlockToken = curBlock._token;
+      // removeBlock
+      if (offset === 0) {
+        // find parent block , Need to be function
+        const curBlock = curToken.parent;
+        const curBlockToken = curBlock._token;
 
-      if (curBlockToken.type !== 'paragraph') {
-        curBlockToken.type = 'paragraph';
-        render();
-        selection.selection.setPosition(curBlockToken.node, 0);
-        return;
-      }
+        if (curBlockToken.type !== 'paragraph') {
+          curBlockToken.type = 'paragraph';
+          this.render();
+          this.textFeature.selection.setPosition(curBlockToken.node, 0);
+          return;
+        }
 
-      let curBlockParentTokens;
-      if (curBlockToken.parent === editor) {
-        curBlockParentTokens = model;
+        let curBlockParentTokens;
+        if (curBlockToken.parent === this.editorEl) {
+          curBlockParentTokens = this.model;
+        } else {
+          curBlockParentTokens = curBlockToken.parent._token.tokens || [];
+        }
+
+        // remove old block
+        const oldIndex = curBlockParentTokens.indexOf(curBlockToken);
+
+        if (oldIndex <= 0 && curBlockParentTokens === this.model) {
+          // there are one block at least
+          return;
+        }
+        const frontNodeTokens = curBlockParentTokens[oldIndex - 1].tokens || [];
+
+        // IMP: 有可能 []
+        const frontNodeLastChildToken =
+          frontNodeTokens[frontNodeTokens.length - 1];
+        const frontNodeLastChildTokenOffset =
+          frontNodeLastChildToken?.text.length;
+
+        curBlockParentTokens.splice(oldIndex, 1);
+        // megre right tokens
+        if (curBlockParentTokens[oldIndex - 1].tokens) {
+          curBlockParentTokens[oldIndex - 1].tokens = curBlockParentTokens[
+            oldIndex - 1
+          ].tokens?.concat(curBlockToken.tokens || []);
+        } else {
+          curBlockParentTokens[oldIndex - 1].tokens = (
+            curBlockToken.tokens || []
+          ).slice();
+        }
+
+        // normalize tokens
+        curBlockParentTokens[oldIndex - 1].tokens = utils.normalizeTokens(
+          curBlockParentTokens[oldIndex - 1].tokens
+        );
+        this.render();
+        this.textFeature.selection.setPosition(
+          frontNodeLastChildToken.node,
+          frontNodeLastChildTokenOffset
+        );
       } else {
-        curBlockParentTokens = curBlockToken.parent._token.tokens;
+        curToken.text = curToken.text.delete(offset);
+        this.render();
+        this.textFeature.selection.setPosition(curToken.node, offset - 1);
       }
-
-      // remove old block
-      const oldIndex = curBlockParentTokens.indexOf(curBlockToken);
-      if (oldIndex === 0 && curBlockParentTokens === model) return; // only one no remove
-      const beforeLastChildToken =
-        curBlockParentTokens[oldIndex - 1].tokens[
-          curBlockParentTokens[oldIndex - 1].tokens.length - 1
-        ];
-      const beforeLastChildTokenOffset = beforeLastChildToken.text.length;
-      curBlockParentTokens.splice(oldIndex, 1);
-      // megre right tokens
-      curBlockParentTokens[oldIndex - 1].tokens = curBlockParentTokens[
-        oldIndex - 1
-      ].tokens.concat(curBlockToken.tokens);
-      // normalize tokens
-      curBlockParentTokens[oldIndex - 1].tokens = normalizeTokens(
-        curBlockParentTokens[oldIndex - 1].tokens
-      );
-      render();
-      selection.selection.setPosition(
-        beforeLastChildToken.node,
-        beforeLastChildTokenOffset
-      );
     } else {
-      token.text = token.text.delete(startPoint.offset);
-      render();
-      selection.selection.setPosition(token.node, startPoint.offset - 1);
+      // delete with Range
+      const { start: startLocation, end: endLocation } =
+        this.textFeature.getRangeLocation() || {};
+      if (!startLocation || !endLocation) return;
     }
   }
   insertParagraph() {
-    const { startPoint, endPoint, collapsed } = selection.range;
-    if (!collapsed) return; // remove
-    const token = startPoint.node._token;
+    const {
+      token: curToken,
+      node: curNode,
+      offset,
+    } = this.textFeature.getCurLocation() || {};
+
+    if (!this.textFeature.isCollapsed || !curToken || !curNode) return;
     // find parent block
-    const curBlock = token.parent;
-    const curBlockToken = curBlock._token;
-    let curBlockParentTokens;
-    if (curBlockToken.parent === editor) {
-      curBlockParentTokens = model;
-    } else {
-      curBlockParentTokens = curBlockToken.parent._token.tokens;
+    const curBlock = curToken.parent;
+    const curBlockToken = curBlock?._token;
+    if (curBlock && curBlockToken) {
+      let curBlockParentTokens;
+      if (curBlockToken.parent === this.editorEl) {
+        curBlockParentTokens = this.model;
+      } else {
+        curBlockParentTokens = curBlockToken.parent._token.tokens || [];
+      }
+
+      const rightTxt = curToken.text.slice(offset);
+      curToken.text = curToken.text.slice(0, offset);
+
+      if (curToken.text.indexOf('---') > -1) {
+        curBlockToken.tokens = [];
+        curBlockToken.type = 'hr';
+        this.render();
+      }
+
+      const newP = utils.createParagraphToken(rightTxt, this.editorEl);
+      curBlockParentTokens.splice(
+        curBlockParentTokens.indexOf(curBlockToken) + 1,
+        0,
+        newP
+      );
+      this.render();
+      newP.node && this.textFeature.selection?.setPosition(newP.node, 0);
     }
+  }
+  private render() {
+    this.editorEl.innerHTML = '';
+    const fragment = document.createDocumentFragment();
 
-    const righttxt = token.text.slice(startPoint.offset);
-    token.text = token.text.slice(0, startPoint.offset);
+    const renderModel = (
+      token: TokenType,
+      parent: HTMLElement | DocumentFragment
+    ) => {
+      const textNode = utils.creatNodeFromToken(token);
+      // token
+      token.node = textNode;
+      // isFragment?
+      token.parent = parent.nodeType == 11 ? this.editorEl : parent;
+      textNode._token = token;
 
-    if (token.text.indexOf('---') > -1) {
-      const i = token.text.indexOf('> ') + 2;
-      curBlockToken.tokens = [];
-      curBlockToken.type = 'hr';
-      render();
-    }
+      if (token.tokens && token.tokens.length) {
+        token.tokens.forEach((t) => renderModel(t, textNode));
+      }
 
-    const newP = createParagraphToken(righttxt);
-    curBlockParentTokens.splice(
-      curBlockParentTokens.indexOf(curBlockToken) + 1,
-      0,
-      newP
-    );
-    render();
-    selection.selection.setPosition(newP.node, 0);
+      if (token.type !== 'text') {
+        textNode.classList.add(`md-${token.type}`);
+      }
+
+      parent.appendChild(textNode);
+    };
+    this.model.forEach((token) => renderModel(token, fragment));
+    this.editorEl.appendChild(fragment);
   }
 }
+
 export default Editor;
