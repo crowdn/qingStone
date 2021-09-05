@@ -1,47 +1,11 @@
-.left {
-  float: left;
-  width: 300px;
-  height: 500px;
-  border: 1px solid;
-  word-break: break-all;
-}
-
-.right {
-  float: right;
-  width: 300px;
-  height: 500px;
-}
-
-.cursor {
-  background: rgba(0, 0, 0, 1);
-  padding: 0 1px;
-  animation: cursor 800ms infinite;
-  margin-left: -2px;
-}
-
-@keyframes cursor {
-  from {
-    background: rgba(0, 0, 0, 1);
-  }
-
-  to {
-    background: rgba(0, 0, 0, 0);
-  }
-}
-
-.md-paragraph:empty::after {
-  content: '\200B';
-}
-
-.md-heading:empty::after {
+[class^='md-']:empty::after {
   content: '\200B';
 }
 .md-blockquote {
   position: relative;
-  color: #333;
-}
-.md-blockquote:empty::after {
-  content: '\200B';
+  color: #666;
+  margin-inline-start: 16px;
+  margin-inline-end: 16px;
 }
 .md-blockquote::before {
   content: ' ';
@@ -49,7 +13,7 @@
   height: 100%;
   background-color: rgba(0, 0, 0, 0.1);
   position: absolute;
-  left: -20px;
+  left: -16px;
 }
 
 #editor {

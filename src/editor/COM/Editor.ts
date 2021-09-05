@@ -1,23 +1,47 @@
 import TextFeature from './TextFeature';
 import * as utils from '../utils';
+import RuleDriver from './RuleDriver';
+import Tokenizer from './Tokenizer';
+
 class Editor {
   private editorEl: HTMLDivElement;
-  private textFeature: TextFeature;
+  private textFeature: TextFeature = new TextFeature();
+  private ruleDriver: RuleDriver = new RuleDriver();
+  private tokenizer: Tokenizer = new Tokenizer();
+  private isComposing = false;
 
   private model: TokenType[];
   constructor(editorEL: HTMLDivElement) {
     this.editorEl = editorEL;
-    this.editorEl.addEventListener('beforeinput', this.beforeInput.bind(this));
+    this.editorEl.addEventListener(
+      'beforeinput',
+      this.onBeforeInput.bind(this)
+    );
+
+    this.editorEl.addEventListener(
+      'compositionend',
+      this.onCompositionEnd.bind(this)
+    );
+    this.editorEl.addEventListener(
+      'compositionupdate',
+      this.onCompositionUpdate.bind(this)
+    );
     this.editorEl.setAttribute('contentEditable', 'true');
 
-    this.textFeature = new TextFeature();
-    this.model = [utils.createParagraphToken('', this.editorEl)];
+    this.model = [utils.createParagraphToken('')];
     this.render();
   }
-  beforeInput(event: InputEvent) {
+  onBeforeInput(event: InputEvent) {
+    if (
+      event.inputType === 'insertCompositionText' ||
+      event.inputType === 'deleteCompositionText'
+    ) {
+      return;
+    }
     event.preventDefault();
     console.log(event);
     switch (event.inputType) {
+      case 'insertFromComposition':
       case 'insertText':
         this.insertText(event.data);
         break;
@@ -29,52 +53,60 @@ class Editor {
         break;
     }
   }
+  onCompositionEnd(event: CompositionEvent) {
+    console.log('onCompositionEnd', event);
+    this.updateModelWhenCompositionEnd(event);
+    this.isComposing = false;
+  }
+  onCompositionUpdate(event: CompositionEvent) {
+    // console.log('onCompositionUpdate', event);
+    this.isComposing = true;
+  }
+  updateModelWhenCompositionEnd(event: CompositionEvent) {
+    const location = this.textFeature.getCurLocation();
+    if (!this.textFeature.isCollapsed || !location) return;
+    location.token.text = location.node.textContent || '';
 
+    // this.render();
+  }
   insertText(text: string | null) {
     console.log('insertText', text);
     if (!text) text = '';
     const location = this.textFeature.getCurLocation();
     if (!this.textFeature.isCollapsed || !location) return;
-    const { token: curToken, offset } = location;
-
-    curToken.text = curToken.text.splice(offset, text);
+    let { token: curToken, offset } = location;
 
     // find block
     const curBlock = curToken.parent;
-    const curBlockToken = curBlock._token;
+    const curBlockToken = curBlock?._token;
+    if (!curBlock || !utils.isMountedToken(curBlockToken)) return;
+
     let curBlockParentTokens;
     if (curBlockToken.parent === this.editorEl) {
       curBlockParentTokens = this.model;
     } else {
-      curBlockParentTokens = curBlockToken.parent._token.tokens;
+      curBlockParentTokens = curBlockToken.parent._token.tokens || [];
     }
+    let curBlockIdxInParent =
+      curBlockParentTokens?.findIndex((i) => i === curBlockToken) || 0;
 
-    if (curToken.text.indexOf('# ') > -1) {
-      const i = curToken.text.indexOf('# ') + 2;
-      curToken.text = curToken.text.slice(i);
-      const newOffset = offset - i + 1;
-      curBlockToken.type = 'heading';
-      this.render();
-      this.textFeature.selection?.setPosition(curToken.node, newOffset);
-      return;
-    }
-
-    if (curToken.text.indexOf('> ') > -1) {
-      const i = curToken.text.indexOf('> ') + 2;
-      curToken.text = curToken.text.slice(i);
-      const newOffset = offset - i + 1;
-      curBlockToken.type = 'blockquote';
-      this.render();
-      this.textFeature.selection?.setPosition(curToken.node, newOffset);
-      return;
+    let caretPostion = offset;
+    let newBlockToken = this.tokenizer.exec(curToken.text.splice(offset, text));
+    if (newBlockToken) {
+      curBlockParentTokens[curBlockIdxInParent] = newBlockToken;
+      caretPostion += newBlockToken.text.length - curToken.text.length;
+      curToken = newBlockToken as any;
+    } else {
+      curToken.text = curToken.text.splice(offset, text);
+      caretPostion = offset + text.length;
     }
 
     // marked.lexer(token.text)
     this.render();
-    // render后，curToken.node.
+
     this.textFeature.selection?.setPosition(
       curToken.node,
-      offset + text.length
+      Math.min(caretPostion, curToken.node?.nodeValue?.length || caretPostion)
     );
   }
   deleteContentBackward() {
@@ -88,7 +120,8 @@ class Editor {
       if (offset === 0) {
         // find parent block , Need to be function
         const curBlock = curToken.parent;
-        const curBlockToken = curBlock._token;
+        const curBlockToken = curBlock?._token;
+        if (!curBlock || !utils.isMountedToken(curBlockToken)) return;
 
         if (curBlockToken.type !== 'paragraph') {
           curBlockToken.type = 'paragraph';
@@ -133,17 +166,20 @@ class Editor {
 
         // normalize tokens
         curBlockParentTokens[oldIndex - 1].tokens = utils.normalizeTokens(
-          curBlockParentTokens[oldIndex - 1].tokens
+          curBlockParentTokens[oldIndex - 1].tokens || []
         );
         this.render();
         this.textFeature.selection.setPosition(
-          frontNodeLastChildToken.node,
+          frontNodeLastChildToken.node || null,
           frontNodeLastChildTokenOffset
         );
       } else {
         curToken.text = curToken.text.delete(offset);
         this.render();
-        this.textFeature.selection.setPosition(curToken.node, offset - 1);
+        this.textFeature.selection.setPosition(
+          curToken.node || null,
+          offset - 1
+        );
       }
     } else {
       // delete with Range
@@ -163,7 +199,7 @@ class Editor {
     // find parent block
     const curBlock = curToken.parent;
     const curBlockToken = curBlock?._token;
-    if (curBlock && curBlockToken) {
+    if (curBlock && utils.isMountedToken(curBlockToken)) {
       let curBlockParentTokens;
       if (curBlockToken.parent === this.editorEl) {
         curBlockParentTokens = this.model;
@@ -180,7 +216,7 @@ class Editor {
         this.render();
       }
 
-      const newP = utils.createParagraphToken(rightTxt, this.editorEl);
+      const newP = utils.createParagraphToken(rightTxt);
       curBlockParentTokens.splice(
         curBlockParentTokens.indexOf(curBlockToken) + 1,
         0,

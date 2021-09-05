@@ -1,4 +1,5 @@
-import NodeType from '@src/editor/constant/nodeType';
+import { NodeType } from '@src/editor/constant';
+import * as utils from '../utils';
 class TextFeature {
   constructor() {
     document.addEventListener(
@@ -29,10 +30,10 @@ class TextFeature {
    */
   get curLeafNode() {
     if (!this.selection.anchorNode) return null;
-    let curNode =
-      this.selection.anchorNode.nodeType === NodeType.TEXT_NODE
-        ? this.selection.anchorNode
-        : this.selection.anchorNode.firstChild;
+    let curNode = this.selection.anchorNode;
+    while (curNode.nodeType !== NodeType.TEXT_NODE && curNode.firstChild) {
+      curNode = curNode.firstChild;
+    }
 
     return curNode;
   }
@@ -44,7 +45,7 @@ class TextFeature {
    */
   public getCurLocation(): LocationType | null {
     let token = this.curLeafToken;
-    if (!token) return null;
+    if (!utils.isMountedToken(token)) return null;
     return {
       node: token.node,
       token,
@@ -61,7 +62,8 @@ class TextFeature {
       this.selection.focusNode?.nodeType === NodeType.TEXT_NODE
         ? this.selection.focusNode
         : this.selection.focusNode?.firstChild;
-    if (endNode?._token && start) {
+
+    if (utils.isMountedToken(endNode?._token) && start && endNode) {
       return {
         start,
         end: {

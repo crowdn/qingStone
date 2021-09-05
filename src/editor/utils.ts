@@ -3,12 +3,16 @@ const typeToElement = {
   text: 'text',
   blockquote: 'blockquote',
   heading: 'h1',
+  heading1: 'h1',
+  heading2: 'h2',
+  heading3: 'h3',
+  heading4: 'h4',
+  heading5: 'h5',
+  heading6: 'h6',
   hr: 'hr',
 };
 
-// @ts-ignore
-export function creatNodeFromToken(token) {
-  // if (token.type === "text") return document.createTextNode(token.text.replaceAll(" ", "&nbsp;"));
+export function creatNodeFromToken(token: TokenType) {
   if (token.type === 'text') {
     const node = document.createTextNode(token.text);
     node.data = token.text;
@@ -17,13 +21,14 @@ export function creatNodeFromToken(token) {
   // @ts-ignore
   return document.createElement(typeToElement[token.type]);
 }
-// @ts-ignore
-export function normalizeTokens(tokens) {
+
+// 合并token
+export function normalizeTokens(tokens: TokenType[]): TokenType[] {
   if (tokens.length === 0) return tokens;
-  let list = [tokens.shift()];
+  let list = [tokens.shift() as TokenType];
   for (const token of tokens) {
     let lastToken = list[list.length - 1];
-    if (lastToken.type === 'text' && token.type === 'text') {
+    if (lastToken?.type === 'text' && token.type === 'text') {
       lastToken.text += token.text;
       continue;
     }
@@ -31,32 +36,40 @@ export function normalizeTokens(tokens) {
   }
   return list;
 }
-export function createTextToken(text = '', parent: Node) {
+export function createTextToken(text = '') {
   return {
     text,
     type: 'text',
     raw: text,
-    parent: parent,
-    node: document.createTextNode(text),
   };
 }
-// @ts-ignore
-export function isBlock(token) {
-  if (token.text === 'paragraph') return true;
-  //   if(token.text === 'paragraph') return true
-  return false;
+
+export function isBlock(token: TokenType) {
+  return (
+    token.type === 'paragraph' ||
+    token.type === 'blockquote' ||
+    token.type.startsWith('heading')
+  );
 }
-export function createParagraphToken(
-  text = '',
-  parent: HTMLElement
-): TokenType {
+export function createParagraphToken(text = ''): TokenType {
   let node = document.createElement('p');
   return {
     text: '',
     type: 'paragraph',
     raw: '',
-    parent,
-    node,
-    tokens: [createTextToken(text, node)],
+    tokens: [createTextToken(text)],
   };
+}
+export function createBlockToken(type: string, text = ''): TokenType {
+  return {
+    text: '',
+    type,
+    raw: text,
+    tokens: [createTextToken(text)],
+  };
+}
+export function isMountedToken(
+  token?: TokenType | null
+): token is TokenMountedType {
+  return !!token && !!token.node && !!token.parent;
 }
